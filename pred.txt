@@ -1,0 +1,6 @@
+pass
+pass
+line three
+line 4
+line 5
+line six
