@@ -7,13 +7,14 @@ Differences include insertion, deletion and substitutions required to transform 
 
 This repo contains sample codes for how the ins8.ai team is evaluating WER scores.
 Normalisation includes removal of punctuation, uppercase conversion to lowercase, standisation in numerical representation, translation of british to american spellings and etc. Normalisation is recommended to be enabled. You may enable it when running the script.
+Normalisation is done based on OpenAI's whisper release.
 
 
 ## Install and Pre-requisites
 
 - after cloning the repo, create a new virtual environment and activate it
 - install the required packages via pip install -r requirements.txt
-- prepare pred.txt and ref.txt with transcripts and number of lines in both files must match.
+- prepare pred.txt and ref.txt with transcripts. the number of lines in both files must match.
 
 
 ## Run
