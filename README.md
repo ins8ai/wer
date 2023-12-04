@@ -19,7 +19,11 @@ Normalisation is done based on OpenAI's whisper release.
 - make sure your virtual environment is activated and run main.py
 
 ```python -m venv venv```
+
 ```source venv/bin/activate```
+
 ```pip install -r requirements.txt```
+
 ```python main.py pred.txt ref.txt True```
+
 ```deactivate```
