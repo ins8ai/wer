@@ -25,11 +25,10 @@ def read_file(file_path, normalise):
     lines = []
     with open(file_path, "r") as file:
         for line in file:
-            if line.strip() != "":
-                if (normalise == False):
-                    lines.append(line.strip())
-                else:
-                    lines.append(normalizer(line.strip()))
+            if (normalise == False):
+                lines.append(line.strip())
+            else:
+                lines.append(normalizer(line.strip()))
     return lines
 
 if __name__ == "__main__":
