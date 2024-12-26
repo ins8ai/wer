@@ -1,18 +1,16 @@
-"""wer_calculator.py: Main module for WER calculation."""
-
 import re
 import typer
-from evaluate import load
+from jiwer import process_words
 from whisper_norm import EnglishTextNormalizer
 from typing import Dict, List, Optional
 from html_generator import HTMLGenerator
 
 app = typer.Typer()
-wer_metric = load("wer")
 normalizer = EnglishTextNormalizer()
 
 class WERCalculator:
     def __init__(self, html_output: bool = True):
+        """Initialize WER calculator with HTML output option."""
         self.html_output = html_output
         self.aligned_htmls: List[str] = []
         self.error_examples = {'sub': [], 'ins': [], 'del': []}
@@ -24,65 +22,6 @@ class WERCalculator:
         self.wer_info = {'sub': 0, 'ins': 0, 'del': 0, 'nw': 0}
         self.error_examples = {'sub': [], 'ins': [], 'del': []}
         self.aligned_htmls = []
-
-    def compute_wer(self, hypothesis: str, reference: str) -> Dict:
-        """Compute WER and generate alignment visualization."""
-        hyp_words = hypothesis.split()
-        ref_words = reference.split()
-        
-        # Compute edit distance
-        distmat = compute_edit_distance_matrix(hyp_words, ref_words)
-        
-        # Back trace to distinguish different errors
-        pos_hyp, pos_ref = len(hyp_words), len(ref_words)
-        aligned_html = []
-        
-        while pos_hyp > 0 or pos_ref > 0:
-            hyp_word = ' ' if pos_hyp == 0 else hyp_words[pos_hyp - 1]
-            ref_word = ' ' if pos_ref == 0 else ref_words[pos_ref - 1]
-            
-            # Determine error type
-            if pos_ref == 0:
-                err_type = 'ins'
-                self.error_examples['ins'].append(hyp_word)
-            elif pos_hyp == 0:
-                err_type = 'del'
-                self.error_examples['del'].append(ref_word)
-            else:
-                if hyp_words[pos_hyp - 1] == ref_words[pos_ref - 1]:
-                    err_type = 'none'
-                elif distmat[pos_ref][pos_hyp] == distmat[pos_ref - 1][pos_hyp - 1] + 1:
-                    err_type = 'sub'
-                    self.error_examples['sub'].append((hyp_word, ref_word))
-                elif distmat[pos_ref][pos_hyp] == distmat[pos_ref - 1][pos_hyp] + 1:
-                    err_type = 'del'
-                    self.error_examples['del'].append(ref_word)
-                else:
-                    err_type = 'ins'
-                    self.error_examples['ins'].append(hyp_word)
-            
-            if self.html_output:
-                aligned_html.append(self._generate_html(hyp_word, ref_word, err_type))
-            
-            # Update statistics
-            if err_type != 'none':
-                self.wer_info[err_type] += 1
-            if err_type != 'ins':
-                self.wer_info['nw'] += 1
-            
-            # Update positions
-            if err_type == 'del':
-                pos_ref -= 1
-            elif err_type == 'ins':
-                pos_hyp -= 1
-            else:
-                pos_hyp -= 1
-                pos_ref -= 1
-        
-        if self.html_output:
-            self.aligned_htmls.append(''.join(reversed(aligned_html)))
-        
-        return self._calculate_stats()
 
     def _generate_html(self, hyp: str, ref: str, err_type: str) -> str:
         """Generate HTML for word alignment visualization."""
@@ -96,6 +35,63 @@ class WERCalculator:
             'ins': f'''<span style="background-color: green"><del>{hyp}</del></span> '''
         }
         return styles.get(err_type, '')
+
+    def compute_wer(self, hypothesis: str, reference: str) -> Dict:
+        """Compute WER and generate alignment visualization using jiwer."""
+        # Process words and get alignment information
+        result = process_words(reference, hypothesis)
+        
+        # Reset error tracking for this comparison
+        aligned_html = []
+        
+        # Get the individual words
+        ref_words = reference.split()
+        hyp_words = hypothesis.split()
+        
+        # Process each alignment chunk in normal order
+        for chunk in reversed(result.alignments[0]):  # Reverse the chunks to get correct order
+            if not hasattr(chunk, 'type'):  # Safety check
+                continue
+                
+            if chunk.type == 'equal':
+                # Words match
+                for i in range(chunk.hyp_start_idx, chunk.hyp_end_idx):
+                    word = hyp_words[i]
+                    aligned_html.append(self._generate_html(word, word, "none"))
+                    self.wer_info['nw'] += 1
+                    
+            elif chunk.type == 'delete':
+                # Words were deleted from reference
+                for i in range(chunk.ref_start_idx, chunk.ref_end_idx):
+                    word = ref_words[i]
+                    aligned_html.append(self._generate_html("", word, "del"))
+                    self.error_examples['del'].append(word)
+                    self.wer_info['del'] += 1
+                    self.wer_info['nw'] += 1
+                    
+            elif chunk.type == 'insert':
+                # Words were inserted in hypothesis
+                for i in range(chunk.hyp_start_idx, chunk.hyp_end_idx):
+                    word = hyp_words[i]
+                    aligned_html.append(self._generate_html(word, "", "ins"))
+                    self.error_examples['ins'].append(word)
+                    self.wer_info['ins'] += 1
+                    
+            elif chunk.type == 'substitute':
+                # Words were substituted
+                for i, j in zip(range(chunk.ref_start_idx, chunk.ref_end_idx),
+                            range(chunk.hyp_start_idx, chunk.hyp_end_idx)):
+                    ref_word = ref_words[i]
+                    hyp_word = hyp_words[j]
+                    aligned_html.append(self._generate_html(hyp_word, ref_word, "sub"))
+                    self.error_examples['sub'].append((hyp_word, ref_word))
+                    self.wer_info['sub'] += 1
+                    self.wer_info['nw'] += 1
+        
+        if self.html_output:
+            self.aligned_htmls.append(''.join(reversed(aligned_html)))  # Reverse the final HTML list
+        
+        return self._calculate_stats()
 
     def _calculate_stats(self) -> Dict:
         """Calculate WER statistics."""
@@ -133,66 +129,32 @@ class WERCalculator:
             error_counts=error_counts
         )
 
-def compute_edit_distance_matrix(hyp_words: List[str], ref_words: List[str]) -> List[List[int]]:
-    """Compute edit distance matrix using dynamic programming."""
-    rows, cols = len(ref_words) + 1, len(hyp_words) + 1
-    matrix = [[j if i == 0 else i if j == 0 else 0 
-              for j in range(cols)] for i in range(rows)]
-    
-    for i in range(1, rows):
-        for j in range(1, cols):
-            if ref_words[i - 1] == hyp_words[j - 1]:
-                matrix[i][j] = matrix[i - 1][j - 1]
-            else:
-                matrix[i][j] = min(matrix[i - 1][j - 1],  # substitution
-                                 matrix[i][j - 1],        # insertion
-                                 matrix[i - 1][j]) + 1    # deletion
-    return matrix
-
-def preprocess_text(txt: str, remove_comments: bool = False) -> str:
-    """Preprocess text before WER calculation."""
-    if remove_comments:
-        txt = re.sub(r'\[\w+\]', '', txt) # Remove comments surrounded by box brackets, e.g., [comment]
-    
-    preprocessing_steps = [
-        lambda x: x.lower(), # Convert text to lowercase for case-insensitive comparison
-        lambda x: x.replace('$', ''), # Remove dollar signs from the text
-        lambda x: ' '.join(word[:-1] if word.endswith('s') else word for word in x.split()), # Remove trailing 's' from words (handle plurals)
-        lambda x: re.sub(r'[\t\n]', ' ', x), # Replace tabs and newlines with spaces for consistent formatting
-        lambda x: re.sub(r'["()\[\]]', '', x), # Remove quotes, brackets, and parentheses
-        lambda x: re.sub(r'[,.?!]+ ', ' ', x), # Remove punctuation marks before spaces
-        lambda x: re.sub(r'[,.?!]+$', ' ', x), # Remove punctuation marks at the end of text
-        lambda x: re.sub(r' [,.?!]+', ' ', x), # Remove punctuation marks after spaces
-        lambda x: re.sub(' +', ' ', x.strip()), # Remove extra spaces and trim
-    ]
-    
-    for step in preprocessing_steps:
-        txt = step(txt)
-    
-    return txt
-
 def read_file(file_path: str, normalize: bool = False, remove_comments: bool = False) -> List[str]:
-    """Read and process file contents."""
+    """Read and process file contents using Whisper normalization."""
     with open(file_path, "r") as file:
         lines = [line.strip() for line in file]
     
-    if normalize:
-        lines = [normalizer(text) for text in lines]
-    if remove_comments:
-        lines = [preprocess_text(text, True) for text in lines]
+    processed_lines = []
+    for text in lines:
+        if remove_comments:
+            # Remove comments surrounded by box brackets before normalization
+            text = re.sub(r'\[\w+\]', '', text)
+        if normalize:
+            text = normalizer(text)
+        processed_lines.append(text)
     
-    return lines
+    return processed_lines
 
 @app.command()
 def main(
     prediction_file: str,
     reference_file: str,
-    normalize: bool = typer.Option(True, "--normalize", "-n", help="Apply text normalization"),
+    normalize: bool = typer.Option(True, "--normalize", "-n", help="Apply Whisper text normalization"),
     remove_comments: bool = typer.Option(True, "--remove-comments", "-r", help="Remove comments in brackets"),
-    html_output: bool = typer.Option(True, "--html", help="Generate HTML visualization"),
-    huggingface_wer: bool = typer.Option(True, "--hf", help="Use HuggingFace WER calculation")
+    html_output: bool = typer.Option(True, "--html", help="Generate HTML visualization")
 ):
     """Calculate Word Error Rate (WER) between prediction and reference files."""
+    # Read and normalize files
     predictions = read_file(prediction_file, normalize, remove_comments)
     references = read_file(reference_file, normalize, remove_comments)
     
@@ -201,7 +163,7 @@ def main(
     
     # Initialize calculator
     calculator = WERCalculator(html_output=html_output)
-    calculator.reset_stats()  # Ensure clean state
+    calculator.reset_stats()
     
     # Process all segments
     stats = None
@@ -211,7 +173,7 @@ def main(
         print(f"Reference:  {ref[:50]}...")
         stats = calculator.compute_wer(hyp, ref)
     
-    if stats:  # Only print if we have valid statistics
+    if stats:
         print(f"\nResults:")
         print(f"Word Error Rate: {stats['wer']:.3f}")
         print(f"Accuracy: {stats['accuracy']:.1f}%")
@@ -224,11 +186,6 @@ def main(
     
         if html_output:
             calculator.save_html(prediction_file)
-    
-    if huggingface_wer:
-        wer_score = wer_metric.compute(predictions=predictions, references=references)
-        print(f"\nHuggingFace WER: {wer_score:.3f}")
-        print(f"HuggingFace Accuracy: {(1.0 - wer_score) * 100:.1f}%")
     
     print("=" * 50 + "\n")
 
