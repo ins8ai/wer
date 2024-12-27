@@ -123,11 +123,11 @@ class HTMLGenerator:
         """Generate segments section."""
         segments = []
         for i, html in enumerate(aligned_htmls, 1):
-            segments.append(f'<h3>Segment {i}:</h3>\n<div style="margin-bottom: 20px;">{html}</div>')
+            segments.append(f'<h3>Comparison:</h3>\n<div style="margin-bottom: 20px;">{html}</div>')
         return '\n'.join(segments)
-
+    
     def _generate_error_summary(self, error_examples: Dict, error_counts: Dict[str, int]) -> str:
-        """Generate error summary section."""
+        """Generate error summary section with chronological error display."""
         error_sections = [
             ('sub', 'Substitutions (Incorrect → Correct)'),
             ('del', 'Deletions (Missing Words)'),
@@ -145,12 +145,12 @@ class HTMLGenerator:
                 if err_type == 'sub':
                     sections.extend(
                         f'<span class="error-example">{hyp} → {ref}</span>'
-                        for hyp, ref in reversed(error_examples[err_type])
+                        for hyp, ref in error_examples[err_type]  # Use original order
                     )
                 else:
                     sections.extend(
                         f'<span class="error-example">{word}</span>'
-                        for word in reversed(error_examples[err_type])
+                        for word in error_examples[err_type]  # Use original order
                     )
                 sections.append('</div>')
         

@@ -48,9 +48,9 @@ class WERCalculator:
         ref_words = reference.split()
         hyp_words = hypothesis.split()
         
-        # Process each alignment chunk in normal order
-        for chunk in reversed(result.alignments[0]):  # Reverse the chunks to get correct order
-            if not hasattr(chunk, 'type'):  # Safety check
+        # Process each alignment chunk in original order
+        for chunk in result.alignments[0]:  # Remove the reverse here
+            if not hasattr(chunk, 'type'):
                 continue
                 
             if chunk.type == 'equal':
@@ -89,7 +89,8 @@ class WERCalculator:
                     self.wer_info['nw'] += 1
         
         if self.html_output:
-            self.aligned_htmls.append(''.join(reversed(aligned_html)))  # Reverse the final HTML list
+            # Don't reverse the HTML - just join it directly
+            self.aligned_htmls.append(''.join(aligned_html))
         
         return self._calculate_stats()
 
