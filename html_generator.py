@@ -1,10 +1,10 @@
-"""html_generator.py: Module for generating HTML visualizations of WER analysis."""
-
 from typing import Dict, List
 
 class HTMLGenerator:
-    def __init__(self):
+    def __init__(self, ignore_insertions: bool = True):
+        """Initialize HTML generator with insertion handling configuration."""
         self.css = self._get_css()
+        self.ignore_insertions = ignore_insertions
     
     def _get_css(self) -> str:
         """Define CSS styles for the HTML output."""
@@ -84,38 +84,52 @@ class HTMLGenerator:
 
     def _generate_stats_section(self, stats: Dict) -> str:
         """Generate statistics summary section."""
+        # Build stat boxes dynamically
+        stat_boxes = [
+            f'''<div class="stat-box">
+                <div class="stat-label">Word Error Rate</div>
+                <div class="stat-value">{stats['wer']:.1f}%</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Accuracy</div>
+                <div class="stat-value">{stats['accuracy']:.1f}%</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Total Words</div>
+                <div class="stat-value">{stats['total_words']}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Total Errors</div>
+                <div class="stat-value">{stats['total_errors']}</div>
+                {" (excluding insertions)" if self.ignore_insertions else ""}
+            </div>'''
+        ]
+
         return f'''
     <div class="stats-summary">
         <h2>Overall Performance</h2>
-        <div class="stat-box">
-            <div class="stat-label">Word Error Rate</div>
-            <div class="stat-value">{stats['wer']:.1f}%</div>
-        </div>
-        <div class="stat-box">
-            <div class="stat-label">Accuracy</div>
-            <div class="stat-value">{stats['accuracy']:.1f}%</div>
-        </div>
-        <div class="stat-box">
-            <div class="stat-label">Total Words</div>
-            <div class="stat-value">{stats['total_words']}</div>
-        </div>
-        <div class="stat-box">
-            <div class="stat-label">Total Errors</div>
-            <div class="stat-value">{stats['total_errors']}</div>
-        </div>
+        {"".join(stat_boxes)}
     </div>'''
 
     def _generate_explanation(self) -> str:
         """Generate explanation section."""
-        return '''
+        error_types = [
+            "<strong>Substitutions</strong> (yellow): Words that were replaced with different words",
+            "<strong>Deletions</strong> (red): Words that were in the reference but missing from the transcription"
+        ]
+        
+        if not self.ignore_insertions:
+            error_types.append("<strong>Insertions</strong> (green): Extra words that appeared in the transcription but weren't in the reference")
+
+        error_list = "\n".join(f"<li>{error_type}</li>" for error_type in error_types)
+
+        return f'''
     <div class="explanation">
         <h2>Understanding Word Error Rate (WER)</h2>
         <p>WER measures how accurately text was transcribed by comparing it to a reference text. 
-           There are three types of errors:</p>
+           There are {'three' if not self.ignore_insertions else 'two'} types of errors:</p>
         <ul>
-            <li><strong>Substitutions</strong> (yellow): Words that were replaced with different words</li>
-            <li><strong>Deletions</strong> (red): Words that were in the reference but missing from the transcription</li>
-            <li><strong>Insertions</strong> (green): Extra words that appeared in the transcription but weren't in the reference</li>
+            {error_list}
         </ul>
     </div>'''
 
@@ -127,12 +141,15 @@ class HTMLGenerator:
         return '\n'.join(segments)
     
     def _generate_error_summary(self, error_examples: Dict, error_counts: Dict[str, int]) -> str:
-        """Generate error summary section with chronological error display."""
+        """Generate error summary section in chronological order."""
         error_sections = [
             ('sub', 'Substitutions (Incorrect → Correct)'),
-            ('del', 'Deletions (Missing Words)'),
-            ('ins', 'Insertions (Extra Words)')
+            ('del', 'Deletions (Missing Words)')
         ]
+        
+        # Only include insertions section if not ignored
+        if not self.ignore_insertions:
+            error_sections.append(('ins', 'Insertions (Extra Words)'))
         
         sections = ['<div class="error-summary">\n<h2>Error Summary</h2>']
         
@@ -143,15 +160,12 @@ class HTMLGenerator:
                 sections.append(f'<h3>{title}<span class="error-count">({count} words)</span></h3>')
                 
                 if err_type == 'sub':
-                    sections.extend(
-                        f'<span class="error-example">{hyp} → {ref}</span>'
-                        for hyp, ref in error_examples[err_type]  # Use original order
-                    )
+                    for hyp, ref in error_examples[err_type]:
+                        sections.append(f'<span class="error-example">{hyp} → {ref}</span>')
                 else:
-                    sections.extend(
-                        f'<span class="error-example">{word}</span>'
-                        for word in error_examples[err_type]  # Use original order
-                    )
+                    for word in error_examples[err_type]:
+                        sections.append(f'<span class="error-example">{word}</span>')
+                        
                 sections.append('</div>')
         
         sections.append('</div>')
